@@ -1,5 +1,8 @@
 package counting;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -8,17 +11,63 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 public class Main {
-    public static void main(String[] args) throws Exception {
-        List<String> lines = Files.readAllLines(Path.of("/home/cimb/Documents/personal/counting/input/12.10.2020-18.10.2020.csv"));
-        List<LocalDateTime> dateTimes = new ArrayList<>();
-        for (String line : lines) {
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy,HH:mm");
-            dateTimes.add(LocalDateTime.parse(line, formatter));
-        }
-        Collections.sort(dateTimes);
+    private static final String INPUT_FOLDER = "input";
+    private static final String OUTPUT_FOLDER = "output";
+    private static final String SEPARATOR = ";";
 
-        int minHour = -1;
-        int maxHour = -1;
+    public static void main(String[] args) throws Exception {
+        List<String> fileToCounts = getNewFileToCounts();
+        for (String filename : fileToCounts) {
+            System.out.println("Generating " + filename);
+
+            List<String> lines = Files.readAllLines(Path.of("input" + File.separator + filename));
+            List<LocalDateTime> dateTimes = extractDateTimeGroupByInvoiceNo(lines);
+            Map<LocalDate, Map<Integer, Integer>> countingMap = countByDateEachHour(dateTimes);
+            writeCountingAsTableToFile(countingMap, filename);
+
+            System.out.println("Generated " + filename);
+        }
+    }
+
+    private static List<String> getNewFileToCounts() {
+        List<String> outputFilenames = new ArrayList<>();
+        File outputFolder = new File(OUTPUT_FOLDER);
+        if (outputFolder.listFiles() != null) {
+            for (File file : outputFolder.listFiles()) {
+                outputFilenames.add(file.getName());
+            }
+        }
+
+        List<String> fileToCounts = new ArrayList<>();
+        File inputFolder = new File(INPUT_FOLDER);
+        if (inputFolder.listFiles() != null) {
+            for (File file : inputFolder.listFiles()) {
+                if (!outputFilenames.contains(file.getName())) {
+                    fileToCounts.add(file.getName());
+                }
+            }
+        }
+
+        return fileToCounts;
+    }
+
+    private static List<LocalDateTime> extractDateTimeGroupByInvoiceNo(List<String> lines) {
+        Map<String, LocalDateTime> inverseMapGroupByInvoiceNo = new LinkedHashMap<>();
+        for (String line : lines) {
+            String substring = line.substring(0, line.lastIndexOf(SEPARATOR));
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy" + SEPARATOR + "HH:mm");
+
+            inverseMapGroupByInvoiceNo.put(line.substring(line.lastIndexOf(SEPARATOR)),
+                    LocalDateTime.parse(substring, formatter));
+        }
+
+        List<LocalDateTime> dateTimes = new ArrayList<>(inverseMapGroupByInvoiceNo.values());
+        Collections.sort(dateTimes);
+        return dateTimes;
+    }
+
+    private static Map<LocalDate, Map<Integer, Integer>> countByDateEachHour(List<LocalDateTime> dateTimes) {
+        // date, hour, count
         Map<LocalDate, Map<Integer, Integer>> counting = new LinkedHashMap<>();
         for (LocalDateTime dateTime : dateTimes) {
             LocalDate date = dateTime.toLocalDate();
@@ -29,16 +78,6 @@ public class Main {
             hours = counting.get(date);
 
             int hour = dateTime.getHour();
-            if (minHour == -1) {
-                minHour = hour;
-            }
-            if (hour < minHour) {
-                minHour = hour;
-            }
-            if (hour > maxHour) {
-                maxHour = hour;
-            }
-
             Integer count = hours.get(hour);
             if (count == null) {
                 hours.put(hour, 1);
@@ -47,29 +86,61 @@ public class Main {
             }
         }
 
-        List<String> result = new ArrayList<>();
-        StringBuilder header = new StringBuilder("");
-        for (LocalDate date : counting.keySet()) {
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-            header.append("," + date.format(formatter));
-        }
-        result.add(header.toString());
+        return counting;
+    }
 
+    private static int getMinHour(Map<LocalDate, Map<Integer, Integer>> countingMap) {
+        int min = 25;
+        for (Map<Integer, Integer> hourMap : countingMap.values()) {
+            for (Integer hour : hourMap.keySet()) {
+                if (hour < min) {
+                    min = hour;
+                }
+            }
+        }
+
+        return min;
+    }
+
+    private static int getMaxHour(Map<LocalDate, Map<Integer, Integer>> countingMap) {
+        int max = -1;
+        for (Map<Integer, Integer> hourMap : countingMap.values()) {
+            for (Integer hour : hourMap.keySet()) {
+                if (hour > max) {
+                    max = hour;
+                }
+            }
+        }
+
+        return max;
+    }
+
+    private static void writeCountingAsTableToFile(Map<LocalDate, Map<Integer, Integer>> countingMap, String filename)
+            throws IOException {
+        FileWriter writer = new FileWriter("output" + File.separator + filename);
+
+        StringBuilder header = new StringBuilder("");
+        for (LocalDate date : countingMap.keySet()) {
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+            header.append(SEPARATOR + date.format(formatter));
+        }
+        writer.write(header.toString() + System.lineSeparator());
+
+        int minHour = getMinHour(countingMap);
+        int maxHour = getMaxHour(countingMap);
         for (int i = minHour; i <= maxHour; i++) {
-            StringBuilder content = new StringBuilder("" + i);
-            for (Map<Integer, Integer> hours : counting.values()) {
+            StringBuilder content = new StringBuilder(i + ":00 - " + (i + 1) + ":00");
+            for (Map<Integer, Integer> hours : countingMap.values()) {
                 Integer hour = hours.get(i);
                 if (hour == null) {
                     hour = 0;
                 }
 
-                content.append("," + hour);
+                content.append(SEPARATOR + hour);
             }
-            result.add(content.toString());
+            writer.write(content.toString() + System.lineSeparator());
         }
 
-        for (String content : result) {
-            System.out.println(content);
-        }
+        writer.close();
     }
 }

@@ -1,0 +1,1 @@
+jre/bin/java -p bin -m counting/counting.Main
